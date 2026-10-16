@@ -134,3 +134,67 @@ secrets_run() {
     die "Not signed in to Infisical. Main computer: ranch login. Server: ranch secrets connect from your main computer."
   fi
 }
+
+# --- keep Convex in step with Infisical -------------------------------------------------------
+
+# Run infisical with whichever login this machine has (yours, or the server's own).
+secrets_inf() {
+  local t
+  if has_user_login; then
+    inf "$@"
+  elif has_server_login; then
+    t="$(server_token)"
+    case "$t" in eyJ*) ;; *) die "This machine's Infisical login failed. From your main computer: ranch secrets connect $(id -un)@$(hostname)" ;; esac
+    INFISICAL_TOKEN="$t" inf "$@"
+  else
+    die "Not signed in to Infisical. Main computer: ranch login. Server: ranch secrets connect from your main computer."
+  fi
+}
+
+# ranch secrets push|status <env> [--to DEPLOYMENT] [--yes]   (run inside the repo)
+# One way: Infisical -> Convex. Reads .ranch/secrets.yaml. Never deletes, never prints a value.
+sync_secrets() {
+  local mode="$1" envname="${2:-}"
+  [ -n "$envname" ] && [ "${envname#-}" = "$envname" ] || die "Usage: ranch secrets $mode <env> [--to DEPLOYMENT] [--yes]   (env is dev or prod)"
+  shift 2
+  has python3 || die "ranch secrets $mode needs python3."
+  local root; root="$(git rev-parse --show-toplevel 2>/dev/null)" || die "Run this inside the repo."
+  local tmp rc=0; tmp="$(umask 077; mktemp -d "${TMPDIR:-/tmp}/ranch-sync.XXXXXX")"
+  ( cd "$root" && secrets_inf export --env="$envname" --format=json --silent > "$tmp/export.json" ) \
+    || { rm -rf "$tmp"; die "Couldn't read the $envname secrets from Infisical (is this repo linked? .infisical.yaml)."; }
+  ( cd "$root" && python3 -I "$ROOT/lib/secrets_sync.py" "$mode" "$envname" "$tmp/export.json" "$@" ) || rc=$?
+  rm -rf "$tmp"
+  return "$rc"
+}
+
+# ranch secrets grant [machine]   (from your main computer)
+# Give servers you already connected read access to projects created since. Doesn't touch their keys.
+grant_servers() {
+  local only="${1:-}"
+  has python3 || die "ranch secrets grant needs python3 on this computer."
+  INF_TOKEN="$(inf user get token --plain 2>/dev/null | grep -oE 'eyJ[A-Za-z0-9._-]+' | head -1)"
+  [ -n "$INF_TOKEN" ] || die "Sign in to Infisical on this computer first: ranch login"
+  local org; org="$(api GET /v2/users/me/organizations | json_get '["organizations"][0]["id"]')"
+  [ -n "$org" ] || die "Couldn't find your Infisical organization."
+
+  step "Servers connected with ranch"
+  local line iid name n=0
+  while IFS="$(printf '\t')" read -r iid name; do
+    [ -n "$iid" ] || continue
+    [ -z "$only" ] || [ "$name" = "${only#*@}" ] || continue
+    # Only logins that `ranch secrets connect` made (their key is described "ranch: <name>").
+    api GET "/v1/auth/universal-auth/identities/$iid/client-secrets" | python3 -c 'import sys,json
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(1)
+sys.exit(0 if any(str(s.get("description","")).startswith("ranch: ") for s in d.get("clientSecrets",[])) else 1)' || continue
+    info "$name"
+    grant_projects "$org" "$iid"
+    n=$((n + 1))
+  done <<EOT
+$(api GET "/v2/organizations/$org/identity-memberships" | python3 -c 'import sys,json
+for m in json.load(sys.stdin).get("identityMemberships",[]):
+    i=m.get("identity",{}); print(i.get("id","")+"\t"+i.get("name",""))')
+EOT
+  INF_TOKEN=""
+  [ "$n" -gt 0 ] || info "No servers connected yet. Run: ranch secrets connect [user@]machine"
+}

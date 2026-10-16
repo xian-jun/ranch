@@ -32,6 +32,9 @@ That's it. Run the same line on the next machine, and the next.
 | `ranch update` | Update every server you've added to the newest ranch (logins untouched) |
 | `ranch run -- <command>` | Run a command with its secrets from Infisical, e.g. `ranch run -- pnpm dev`. No `.env` files |
 | `ranch secrets connect [user@]machine` | From your main computer: give a server its own limited Infisical login |
+| `ranch secrets grant [machine]` | From your main computer: let servers you already connected see projects added since, without new keys |
+| `ranch secrets push <env>` | In a repo with `.ranch/secrets.yaml`: copy that Infisical environment to its Convex deployment (shows names only, asks first, never deletes) |
+| `ranch secrets status <env>` | Same check without changing anything; exits 1 if the two differ |
 | `ranch join` | At a new Linux server: join your network by scanning a QR code |
 | `ranch add [user@]machine` | From your main computer: set that server up remotely, logins carried over |
 | `ranch pair [user@]machine` | From your main computer: a fresh link to pair that server with your T3 Code app |
