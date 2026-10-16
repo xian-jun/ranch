@@ -76,6 +76,16 @@ One QR scan, one click and one paste, instead of copying links and codes by hand
 
 > The server signs in as you, with the same accounts as your main computer. That's right for machines you own. Shared or cloud servers should get their own limited logins.
 
+## Sharing one server *(new, untested with a second person)*
+
+Each person gets their own Linux user on the server, so logins and files stay separate. At the server, once per person:
+
+```bash
+sudo adduser mm && sudo loginctl enable-linger mm
+```
+
+Then that person runs `ranch add mm@<machine>` from their own computer, which must be on the same Tailscale network (or have the server shared with it). Each user's T3 gets its own port and address (first user `https://<machine>.<tailnet>`, second `…:8443`, third `…:10000`). A user other than the first needs the server's admin to run one command once; ranch prints it.
+
 ## Teams
 
 Give everyone on a team the same setup with a team config — a private repo with three things:

@@ -10,6 +10,23 @@ t3_channel() {
   else echo stable; fi
 }
 
+# Several people can share one server, each as their own Linux user with their own T3.
+# The first user (uid 1000) keeps the usual ports; the next users get the next ones.
+t3_slot() { local n=$(( $(id -u) - 1000 )); [ "$n" -ge 0 ] && [ "$n" -le 2 ] && echo "$n" || echo 0; }
+t3_port() { echo $(( 3773 + $1 )); }
+t3_https_port() { case "$1" in 0) echo 443 ;; 1) echo 8443 ;; *) echo 10000 ;; esac; }
+
+# Publish this user's T3 on the tailnet. The first user can do it alone ('ranch join' allows it);
+# other users need the server's admin once.
+t3_serve() {
+  local slot port https
+  slot="$(t3_slot)"; port="$(t3_port "$slot")"; https="$(t3_https_port "$slot")"
+  [ "$slot" != 0 ] || return 0
+  tailscale serve --https="$https" --bg "http://127.0.0.1:$port" >/dev/null 2>&1 \
+    || sudo -n tailscale serve --https="$https" --bg "http://127.0.0.1:$port" >/dev/null 2>&1 \
+    || warn "T3: ask the server's admin to run once: sudo tailscale serve --https=$https --bg http://127.0.0.1:$port"
+}
+
 # Servers (Linux) run T3. On a Mac you use the T3 Code app, so there's nothing to install.
 install_t3() {
   t3_wanted || return 0
@@ -27,11 +44,13 @@ install_t3() {
   mkdir -p "$dropin"
   printf '[Service]\n# Added by ranch: let T3 find Claude Code (~/.local/bin) and mise tools like Codex.\nEnvironment=PATH=%s/.local/bin:%s/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n' \
     "$HOME" "$HOME" > "$dropin/ranch-path.conf"
+  printf '[Service]\nEnvironment=T3CODE_PORT=%s\n' "$(t3_port "$(t3_slot)")" > "$dropin/ranch-port.conf"
 
   # Re-installing the service points it at the version just installed.
   t3 service install >/dev/null 2>&1 || { warn "Couldn't start T3 in the background"; return 0; }
   systemctl --user daemon-reload && systemctl --user restart t3code
   if systemctl --user is-active --quiet t3code; then ok "T3 running in the background"; else warn "T3 service isn't running"; fi
+  t3_serve
 }
 
 login_t3() {
@@ -50,14 +69,17 @@ login_t3() {
 pair_t3() {
   t3_wanted || return 0
   remote 'command -v $HOME/.local/bin/t3 >/dev/null' 2>/dev/null || { info "T3 isn't installed on the server; skipping pairing."; return 0; }
-  local out url try
+  # Which T3 on the server is this user's (see t3_slot).
+  local slot port https out url try
+  slot="$(remote 'n=$(( $(id -u) - 1000 )); [ "$n" -ge 0 ] && [ "$n" -le 2 ] && echo $n || echo 0')"
+  port="$(t3_port "${slot:-0}")"; https="$(t3_https_port "${slot:-0}")"
   for try in 1 2; do
-    out="$(remote '$HOME/.local/bin/t3 pair --tailscale --label "'"$(scutil --get ComputerName 2>/dev/null || hostname)"'" --ttl 30m 2>&1')" || true
+    out="$(remote '$HOME/.local/bin/t3 pair --tailscale --tailscale-serve-port '"$https"' --label "'"$(scutil --get ComputerName 2>/dev/null || hostname)"'" --ttl 30m 2>&1')" || true
     url="$(printf '%s' "$out" | grep -o 'https://[^[:space:]]*/pair#token=[A-Za-z0-9]*' | head -1)"
     [ -n "$url" ] && break
     # First time on a Tailscale account, private HTTPS must be switched on once.
     local enable
-    enable="$(remote 'timeout 10 tailscale serve --https=443 --bg http://127.0.0.1:3773 2>&1' | grep -o 'https://login.tailscale.com/f/serve[^[:space:]]*' | head -1)"
+    enable="$(remote 'timeout 10 tailscale serve --https='"$https"' --bg http://127.0.0.1:'"$port"' 2>&1' | grep -o 'https://login.tailscale.com/f/serve[^[:space:]]*' | head -1)"
     if [ -n "$enable" ] && [ "$try" = 1 ] && can_prompt; then
       info "Tailscale needs a one-time approval for private HTTPS addresses (once per account)."
       open_link "$enable"
