@@ -61,7 +61,7 @@ ranch add <machine-name>
 | Login | How it's done |
 |---|---|
 | Tailscale | Already done in step 1 |
-| GitHub | No clicks: your main computer passes its GitHub login over the secure connection |
+| GitHub | No clicks: your main computer passes its GitHub login over the secure connection. `git@github.com:` URLs are rewritten to HTTPS, so clones work without SSH keys |
 | Codex | No clicks: your Codex sign-in is copied over, as Codex recommends for headless machines |
 | Claude Code | One click: the sign-in link opens in your main computer's browser |
 | Infisical | No clicks: the server gets its own limited Infisical login, created from your main computer. Revoke one server without touching the rest |
