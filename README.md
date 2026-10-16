@@ -75,6 +75,51 @@ One QR scan, one click and one paste, instead of copying links and codes by hand
 
 > The server signs in as you, with the same accounts as your main computer. That's right for machines you own. Shared or cloud servers should get their own limited logins.
 
+## Secrets for a repo
+
+Secrets live in [Infisical](https://infisical.com), one list per environment (`dev`, `staging`, `prod`). Nothing is kept in `.env` files. Code gets its secrets when it starts, and Convex is updated from Infisical, never the other way round.
+
+**Setting up a new repo (once)**
+
+```bash
+infisical login                       # your own sign-in, in the browser
+infisical init                        # in the repo: pick its Infisical project (creates .infisical.yaml)
+
+# Load what already exists, one environment at a time. Pick the sources that apply:
+ranch secrets import dev  --from-convex dev:festive-spaniel-679
+ranch secrets import prod --from-convex <prod deployment>
+ranch secrets import dev  --from-file apps/app/.env.local
+ranch secrets import prod --from-cloudrun <service> --project <id> --region <region>
+```
+
+Every import lists the names it will add and asks before it does anything. It never deletes, keeps any value already in Infisical unless you add `--overwrite`, and never prints a value. `CONVEX_DEPLOYMENT` and `CONVEX_DEPLOY_KEY` are always left out (`--skip A,B*` leaves out more), and empty values are not imported. `prod` refuses a `dev:` Convex source and Clerk test keys. Multi-line values, like a private key, are stored on one line with a literal `\n`.
+
+Some values can't be imported by anything, because the service never gives them back (Supabase, Cloudflare, most dashboards). Paste those into the Infisical dashboard once.
+
+**If the repo uses Convex**, add `.ranch/secrets.yaml` so `push` and `status` know where to go:
+
+```yaml
+dir: apps/backend                  # the folder with convex.json
+skip: NEXT_PUBLIC_*, CLERK_SECRET_KEY   # in Infisical but not for Convex (globs, comma-separated)
+prod:
+  convex: prod:your-prod-deployment
+dev:
+  convex: prod:your-staging-deployment
+```
+
+**Every day after that**
+
+```bash
+ranch run -- pnpm dev                 # run with the dev secrets (add --env=prod for prod)
+ranch secrets status prod             # does Convex match Infisical?
+ranch secrets push prod               # copy Infisical to Convex (names only, asks first)
+ranch secrets grant                   # a server that already has a key can see a newly added project
+```
+
+**A new server:** `ranch secrets connect user@machine` gives it its own read-only login, and `ranch secrets grant` extends it to projects added later. Servers can read and run but never import.
+
+**Supabase:** there is no `import` source for it, because Supabase only returns secret names, never values. Put the values in Infisical and use Infisical's built-in Supabase sync to push them.
+
 ## Teams
 
 Give everyone on a team the same setup with a team config — a private repo with three things:
@@ -99,7 +144,6 @@ macOS, Ubuntu, Debian and Fedora. Arch is best effort.
 
 ## Roadmap
 
-- Secrets per repo from Infisical, injected at runtime — no `.env` files (Infisical is installed and signed in already)
 - One-command cloud servers (DigitalOcean, Google Cloud)
 - Self-hosted CI runners
 - Agents that pick up GitHub issues on their own
