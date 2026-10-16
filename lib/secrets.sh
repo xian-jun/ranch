@@ -114,22 +114,25 @@ server_token() {
       --client-secret "$INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET" --silent --plain 2>/dev/null | tail -1 )
 }
 
+# A server's own key (from `ranch secrets connect`) always wins over a personal login, so a server never
+# depends on, or opens a browser for, someone's session.
 secrets_check() {
-  if has_user_login; then return 0; fi
-  has_server_login || return 1
-  case "$(server_token)" in eyJ*) return 0 ;; *) return 1 ;; esac
+  if has_server_login; then
+    case "$(server_token)" in eyJ*) return 0 ;; *) return 1 ;; esac
+  fi
+  has_user_login
 }
 
 # ranch run [--env dev] [--projectId ID] -- command…   (the project comes from .infisical.yaml if present)
 secrets_run() {
   [ "${1:-}" != "--" ] || shift
-  if has_user_login; then
-    exec "$MISE" exec -- infisical run "$@"
-  elif has_server_login; then
+  if has_server_login; then
     local t
     t="$(server_token)"
     case "$t" in eyJ*) ;; *) die "This machine's Infisical login failed. From your main computer: ranch secrets connect $(id -un)@$(hostname)" ;; esac
     INFISICAL_TOKEN="$t" exec "$MISE" exec -- infisical run "$@"
+  elif has_user_login; then
+    exec "$MISE" exec -- infisical run "$@"
   else
     die "Not signed in to Infisical. Main computer: ranch login. Server: ranch secrets connect from your main computer."
   fi
@@ -140,12 +143,12 @@ secrets_run() {
 # Run infisical with whichever login this machine has (yours, or the server's own).
 secrets_inf() {
   local t
-  if has_user_login; then
-    inf "$@"
-  elif has_server_login; then
+  if has_server_login; then
     t="$(server_token)"
     case "$t" in eyJ*) ;; *) die "This machine's Infisical login failed. From your main computer: ranch secrets connect $(id -un)@$(hostname)" ;; esac
     INFISICAL_TOKEN="$t" inf "$@"
+  elif has_user_login; then
+    inf "$@"
   else
     die "Not signed in to Infisical. Main computer: ranch login. Server: ranch secrets connect from your main computer."
   fi
