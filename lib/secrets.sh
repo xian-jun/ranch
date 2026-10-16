@@ -125,7 +125,7 @@ secrets_check() {
 
 # ranch run [--env dev] [--projectId ID] -- command…   (the project comes from .infisical.yaml if present)
 secrets_run() {
-  [ "${1:-}" != "--" ] || shift
+  # Keep the leading "--": without it infisical reads a command's own flags (like sh -c) as its own.
   if has_server_login; then
     local t
     t="$(server_token)"
